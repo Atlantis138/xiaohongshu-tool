@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xhs-scraper"
+version = "0.1.0"
+description = "Local Playwright-based Xiaohongshu note collection helper."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.44.0",
+]
+
+[project.scripts]
+xhs-scraper = "xhs.cli:main"
+
+[tool.setuptools]
+py-modules = ["xhs_scraper", "xhs_gui"]
+
+[tool.setuptools.packages.find]
+include = ["xhs*"]
