@@ -11,12 +11,32 @@
 
 ## 安装
 
+首次 clone 到一台新电脑后，在项目根目录运行：
+
 ```powershell
-C:\Python\Python311\python.exe -m pip install -r requirements.txt
-C:\Python\Python311\python.exe -m playwright install chromium
+.\scripts\setup.ps1
 ```
 
-当前电脑上默认 `python` 指向 `D:\Anaconda\python.exe`，该解释器导入 SSL 模块时会报权限错误；建议直接使用 `C:\Python\Python311\python.exe`，或用项目里的 `scripts\run_scraper.bat` 包装脚本。
+也可以直接运行批处理包装脚本：
+
+```powershell
+.\scripts\setup.bat
+```
+
+安装脚本会做三件事：
+
+- 检查本机是否有 Python 3.11 或更新版本。
+- 在项目内创建 `.venv/`，并把 `requirements.txt` 里的 Python 依赖安装进去。
+- 执行 `python -m playwright install chromium`，浏览器二进制仍安装到 Playwright 默认的用户缓存目录，不放进项目仓库。
+
+如果 PowerShell 阻止脚本运行，可以用当前窗口临时放行：
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\setup.ps1
+```
+
+后续运行脚本会固定使用项目内 `.venv\Scripts\python.exe`，不会再依赖全局 Python 包环境。
 
 ## 第一次登录
 
