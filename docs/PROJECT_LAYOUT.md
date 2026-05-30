@@ -1,7 +1,7 @@
 # 项目结构
 
 ```text
-xiaohongshu/
+xiaohongshu-tool/
   xhs/                 核心采集逻辑包
   xhs_scraper.py       命令行兼容入口
   xhs_gui.py           Tkinter 图形界面入口

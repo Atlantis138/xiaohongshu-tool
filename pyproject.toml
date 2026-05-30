@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "xhs-scraper"
+name = "xiaohongshu-tool"
 version = "0.1.0"
 description = "Local Playwright-based Xiaohongshu note collection helper."
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-xhs-scraper = "xhs.cli:main"
+xiaohongshu-tool = "xhs.cli:main"
 
 [tool.setuptools]
 py-modules = ["xhs_scraper", "xhs_gui"]
