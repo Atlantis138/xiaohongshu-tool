@@ -12,22 +12,21 @@ from subprocess import list2cmdline
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from xhs.modes import GUI_TASK_LABELS, GUI_URL_PIPELINE_STEP_LABELS
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
 SCRAPER_PATH = PROJECT_DIR / "xhs_scraper.py"
 SETTINGS_PATH = PROJECT_DIR / "data" / "gui_settings.json"
 
-MODE_LABELS = {
-    "keyword": "一步完成：搜索并采详情",
-    "preview": "预览模式：搜索页点击采详情",
-    "new_tab": "新标签页模式：搜索页打开采详情",
-    "search_only": "第一步：只收集搜索链接",
-    "from_csv": "第二步：从链接 CSV 采详情",
-}
+MODE_LABELS = GUI_TASK_LABELS
 MODE_CODES = {label: code for code, label in MODE_LABELS.items()}
+URL_STEP_LABELS = GUI_URL_PIPELINE_STEP_LABELS
+URL_STEP_CODES = {label: code for code, label in URL_STEP_LABELS.items()}
 
 DEFAULTS = {
-    "mode": "keyword",
+    "mode": "url_pipeline",
+    "url_pipeline_step": "full",
     "keyword": "",
     "max_notes": "30",
     "use_keyword_tasks": False,
@@ -35,8 +34,6 @@ DEFAULTS = {
     "auto_scrolls": True,
     "output": "data/xhs_notes.csv",
     "input_csv": "",
-    "input_start_row": "1",
-    "input_end_row": "",
     "overwrite": False,
     "profile_dir": ".xhs_browser",
     "headless": False,
@@ -65,7 +62,6 @@ DEFAULTS = {
 
 INT_RULES = {
     "max_notes": (1, None),
-    "input_start_row": (1, None),
     "slow_mo": (0, None),
     "max_scrolls": (0, None),
     "stagnant_limit": (0, None),
@@ -133,9 +129,14 @@ class XhsScraperGui(tk.Tk):
         self.settings = self.load_settings()
         self.vars: dict[str, tk.StringVar | tk.BooleanVar] = {}
         self.entries: dict[str, ttk.Entry] = {}
+        self.entry_widgets: dict[str, list[tk.Widget]] = {}
+        self.url_step_widgets: list[tk.Widget] = []
         self.keyword_tasks_text: tk.Text | None = None
         self.mode_label_var = tk.StringVar(
-            value=MODE_LABELS.get(self.settings.get("mode", "keyword"), MODE_LABELS["keyword"])
+            value=MODE_LABELS.get(self.settings.get("mode", "url_pipeline"), MODE_LABELS["url_pipeline"])
+        )
+        self.url_step_label_var = tk.StringVar(
+            value=URL_STEP_LABELS.get(self.settings.get("url_pipeline_step", "full"), URL_STEP_LABELS["full"])
         )
         self.login_status_var = tk.StringVar(value="登录状态：未检查")
         self.computed_scrolls_var = tk.StringVar(value="")
@@ -255,12 +256,23 @@ class XhsScraperGui(tk.Tk):
         self.mode_combo.grid(row=0, column=1, sticky="w", pady=5)
         self.mode_combo.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_state())
 
+        url_step_label = ttk.Label(basic, text="URL流程步骤")
+        url_step_label.grid(row=0, column=3, sticky="w", padx=(0, 8), pady=5)
+        self.url_step_combo = ttk.Combobox(
+            basic,
+            textvariable=self.url_step_label_var,
+            values=list(URL_STEP_CODES.keys()),
+            state="readonly",
+            width=26,
+        )
+        self.url_step_combo.grid(row=0, column=4, sticky="w", pady=5)
+        self.url_step_combo.bind("<<ComboboxSelected>>", lambda _event: self.update_mode_state())
+        self.url_step_widgets = [url_step_label, self.url_step_combo]
+
         self.add_entry(basic, 1, "关键词", "keyword", column=0, width=38)
         self.add_entry(basic, 1, "目标笔记数", "max_notes", column=3, width=12)
         self.add_entry(basic, 2, "输出 CSV", "output", column=0, width=56, browse="save")
         self.add_entry(basic, 3, "输入链接 CSV", "input_csv", column=0, width=56, browse="open")
-        self.add_entry(basic, 4, "CSV 起始行", "input_start_row", column=0, width=12)
-        self.add_entry(basic, 4, "CSV 结束行", "input_end_row", column=3, width=12)
 
         self.overwrite_check = ttk.Checkbutton(
             basic,
@@ -278,7 +290,7 @@ class XhsScraperGui(tk.Tk):
         self.keyword_tasks_check.grid(row=3, column=5, sticky="w", padx=(10, 0))
 
         keyword_tasks_frame = ttk.Frame(basic)
-        keyword_tasks_frame.grid(row=5, column=0, columnspan=6, sticky="ew", pady=(8, 0))
+        keyword_tasks_frame.grid(row=4, column=0, columnspan=6, sticky="ew", pady=(8, 0))
         keyword_tasks_frame.columnconfigure(1, weight=1)
         ttk.Label(keyword_tasks_frame, text="批量任务").grid(row=0, column=0, sticky="nw", padx=(0, 8))
         self.keyword_tasks_text = tk.Text(
@@ -428,17 +440,24 @@ class XhsScraperGui(tk.Tk):
         width: int,
         browse: str | None = None,
     ) -> None:
-        ttk.Label(parent, text=label).grid(row=row, column=column, sticky="w", padx=(0, 8), pady=5)
+        widgets: list[tk.Widget] = []
+        label_widget = ttk.Label(parent, text=label)
+        label_widget.grid(row=row, column=column, sticky="w", padx=(0, 8), pady=5)
+        widgets.append(label_widget)
         entry = ttk.Entry(parent, textvariable=self.vars[key], width=width)
         entry.grid(row=row, column=column + 1, sticky="ew", pady=5)
         self.entries[key] = entry
+        widgets.append(entry)
         if browse:
-            ttk.Button(parent, text="选择", command=lambda: self.browse_path(key, browse)).grid(
+            button = ttk.Button(parent, text="选择", command=lambda: self.browse_path(key, browse))
+            button.grid(
                 row=row,
                 column=column + 2,
                 padx=(6, 12),
                 pady=5,
             )
+            widgets.append(button)
+        self.entry_widgets[key] = widgets
 
     def browse_path(self, key: str, browse: str) -> None:
         current = self.get_string(key)
@@ -482,28 +501,47 @@ class XhsScraperGui(tk.Tk):
             return str(path)
 
     def current_mode(self) -> str:
-        return MODE_CODES.get(self.mode_label_var.get(), "keyword")
+        return MODE_CODES.get(self.mode_label_var.get(), "url_pipeline")
+
+    def current_url_pipeline_step(self) -> str:
+        return URL_STEP_CODES.get(self.url_step_label_var.get(), "full")
+
+    def effective_task_mode(self) -> str:
+        mode = self.current_mode()
+        if mode == "url_pipeline":
+            return self.current_url_pipeline_step()
+        return mode
 
     def update_mode_state(self) -> None:
         mode = self.current_mode()
-        use_keyword_tasks = bool(self.vars["use_keyword_tasks"].get()) and mode != "from_csv"
+        task_mode = self.effective_task_mode()
+        is_url_pipeline = mode == "url_pipeline"
+        from_csv = task_mode == "from_csv"
+        use_keyword_tasks = bool(self.vars["use_keyword_tasks"].get()) and not from_csv
+        for widget in self.url_step_widgets:
+            if is_url_pipeline:
+                widget.grid()
+            else:
+                widget.grid_remove()
+        self.url_step_combo.configure(state="readonly" if is_url_pipeline else "disabled")
         self.set_entry_enabled("keyword", not use_keyword_tasks)
-        self.set_entry_enabled("input_csv", mode == "from_csv")
-        self.set_entry_enabled("input_start_row", mode == "from_csv")
-        self.set_entry_enabled("input_end_row", mode == "from_csv")
+        self.set_entry_visible("input_csv", is_url_pipeline)
+        self.set_entry_enabled("input_csv", from_csv)
         self.set_entry_enabled("output", True)
         self.set_entry_enabled("max_notes", not use_keyword_tasks)
-        self.keyword_tasks_check.configure(state="disabled" if mode == "from_csv" else "normal")
+        self.keyword_tasks_check.configure(state="disabled" if from_csv else "normal")
         self.set_keyword_tasks_text_enabled(use_keyword_tasks)
         self.overwrite_check.configure(state="normal")
-        if mode == "from_csv":
+        if from_csv:
             self.status_var.set("从链接表采详情时，关键词可留空，优先使用链接表内关键词。")
-        elif mode == "preview":
+        elif task_mode == "preview":
             self.status_var.set("在搜索页内逐条点开预览采详情，减少详情页跳转。")
-        elif mode == "new_tab":
+        elif task_mode == "new_tab":
             self.status_var.set("在搜索页中用新标签页打开笔记并采集详情。")
-        elif mode == "search_only":
+        elif task_mode == "search_only":
             self.status_var.set("只保存搜索链接，不打开详情页；适合大批量任务第一步。")
+        elif task_mode == "full":
+            self.status_var.set("URL流程完整执行：先收集搜索链接，再逐条访问详情页。")
         else:
             self.status_var.set("就绪")
         self.update_scroll_strategy()
@@ -511,6 +549,13 @@ class XhsScraperGui(tk.Tk):
     def set_entry_enabled(self, key: str, enabled: bool) -> None:
         if key in self.entries:
             self.entries[key].configure(state="normal" if enabled else "disabled")
+
+    def set_entry_visible(self, key: str, visible: bool) -> None:
+        for widget in self.entry_widgets.get(key, []):
+            if visible:
+                widget.grid()
+            else:
+                widget.grid_remove()
 
     def set_keyword_tasks_text_enabled(self, enabled: bool) -> None:
         if self.keyword_tasks_text is not None:
@@ -522,11 +567,12 @@ class XhsScraperGui(tk.Tk):
         self.check_login_button.configure(state=state)
         self.login_button.configure(state=state)
         self.mode_combo.configure(state="disabled" if busy else "readonly")
+        self.url_step_combo.configure(state="disabled" if busy else "readonly")
         if not busy:
             self.update_mode_state()
 
     def estimate_max_scrolls(self) -> int:
-        if self.vars["use_keyword_tasks"].get() and self.current_mode() != "from_csv":
+        if self.vars["use_keyword_tasks"].get() and self.effective_task_mode() != "from_csv":
             try:
                 max_notes = max(count for _keyword, count in self.parse_keyword_tasks_text())
             except ValueError:
@@ -683,14 +729,10 @@ class XhsScraperGui(tk.Tk):
     def build_command(self) -> list[str]:
         self.validate_inputs()
         cmd = self.base_command()
-        mode = self.current_mode()
+        mode = self.effective_task_mode()
 
         if mode == "from_csv":
             cmd.extend(["--input-csv", self.get_string("input_csv")])
-            cmd.extend(["--input-start-row", self.get_string("input_start_row")])
-            input_end_row = self.get_string("input_end_row")
-            if input_end_row:
-                cmd.extend(["--input-end-row", input_end_row])
             keyword = self.get_string("keyword")
             if keyword:
                 cmd.extend(["--keyword", keyword])
@@ -717,7 +759,7 @@ class XhsScraperGui(tk.Tk):
             elif mode == "new_tab":
                 cmd.append("--new-tab")
 
-        if self.vars["overwrite"].get() and mode != "login":
+        if self.vars["overwrite"].get():
             cmd.append("--overwrite")
 
         for key, arg in ARG_FIELDS:
@@ -738,9 +780,9 @@ class XhsScraperGui(tk.Tk):
         if not SCRAPER_PATH.exists():
             raise ValueError(f"找不到采集脚本：{SCRAPER_PATH}")
 
-        mode = self.current_mode()
+        mode = self.effective_task_mode()
         use_keyword_tasks = bool(self.vars["use_keyword_tasks"].get()) and mode != "from_csv"
-        if mode in {"keyword", "preview", "new_tab", "search_only"}:
+        if mode in {"full", "preview", "new_tab", "search_only"}:
             if use_keyword_tasks:
                 self.parse_keyword_tasks_text()
             elif not self.get_string("keyword"):
@@ -754,12 +796,6 @@ class XhsScraperGui(tk.Tk):
                 raise ValueError(f"输入 CSV 不存在：{input_path}")
             if self.resolve_path(input_csv) == self.resolve_path(self.get_string("output")):
                 raise ValueError("输入 CSV 和输出 CSV 不能是同一个文件。")
-            start_row = self.parse_positive_int("input_start_row")
-            input_end_row = self.get_string("input_end_row")
-            if input_end_row:
-                end_row = self.parse_positive_int("input_end_row")
-                if end_row < start_row:
-                    raise ValueError("CSV 结束行不能小于起始行。")
         if not self.get_string("output"):
             raise ValueError("输出 CSV 不能为空。")
 
@@ -767,8 +803,6 @@ class XhsScraperGui(tk.Tk):
             if key == "max_scrolls" and self.vars["auto_scrolls"].get():
                 continue
             if key == "max_notes" and use_keyword_tasks:
-                continue
-            if key == "input_start_row" and mode != "from_csv":
                 continue
             value = self.get_string(key)
             try:
@@ -979,10 +1013,15 @@ class XhsScraperGui(tk.Tk):
         settings = DEFAULTS.copy()
         if isinstance(data, dict):
             settings.update({key: value for key, value in data.items() if key in DEFAULTS})
+        old_mode = str(data.get("mode", "")) if isinstance(data, dict) else ""
+        if old_mode in {"keyword", "search_only", "from_csv"}:
+            settings["mode"] = "url_pipeline"
+            settings["url_pipeline_step"] = "full" if old_mode == "keyword" else old_mode
         return settings
 
     def collect_settings(self) -> dict[str, object]:
         settings: dict[str, object] = {"mode": self.current_mode()}
+        settings["url_pipeline_step"] = self.current_url_pipeline_step()
         for key, var in self.vars.items():
             settings[key] = var.get()
         settings["keyword_tasks_text"] = self.get_keyword_tasks_text()

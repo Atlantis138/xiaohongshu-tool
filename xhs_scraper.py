@@ -17,12 +17,25 @@ from xhs.csv_store import (
 )
 from xhs.detail import click_expand_buttons, merge_extraction, save_debug_files, scrape_note_detail
 from xhs.logging_utils import log, now_text, setup_log
+from xhs.modes import (
+    KeywordTask,
+    RunConfig,
+    RunStats,
+    ScrapeMode,
+    build_run_config,
+    keyword_tasks_from_args,
+    parse_keyword_task,
+    validate_runtime_args,
+)
 from xhs.models import SearchItem
 from xhs.new_tab import NewTabScrapeStats, scrape_keyword_new_tabs
 from xhs.parsing import compact_text, normalize_time, parse_count, split_time_and_ip
 from xhs.preview import PreviewScrapeStats, scrape_keyword_previews
+from xhs.runner import run
 from xhs.runtime import sleep_random
 from xhs.search import collect_search_items
+from xhs.search_scan import extract_current_search_items, items_in_scan_band
+from xhs.strategies import NewTabStrategy, PreviewOverlayStrategy, ScrapeStrategy, strategy_for_mode
 from xhs.urls import build_search_url, extract_note_id, normalize_note_url
 
 

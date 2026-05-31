@@ -2,7 +2,7 @@
 
 ```text
 xiaohongshu-tool/
-  xhs/                 核心采集逻辑包
+  xhs/                 核心工具箱逻辑包
   xhs_scraper.py       命令行兼容入口
   xhs_gui.py           Tkinter 图形界面入口
   scripts/             Windows 启动脚本
@@ -26,3 +26,18 @@ xiaohongshu-tool/
 - 文档：`README.md`、`docs/`
 - 依赖声明：`requirements.txt`、`pyproject.toml`
 - 安装入口：`scripts/setup.ps1`、`scripts/setup.bat`
+
+## 核心模块边界
+
+- `xhs/cli.py`：只负责命令行参数解析、参数校验和调用 runner。
+- `xhs/runner.py`：应用层编排，负责登录检查、CSV 续跑、模式调度、节奏控制和最终统计。
+- `xhs/modes.py`：采集模式、GUI 任务文案、关键词任务解析和运行参数校验。
+- `xhs/search_scan.py`：搜索页扫描、卡片定位、滚动恢复等共享浏览器操作。
+- `xhs/strategies.py`：预览层和新标签页策略接口，屏蔽不同打开方式的差异。
+- `xhs/search.py` / `xhs/detail.py`：URL 流程的搜索链接采集和详情页抽取。
+- `xhs/preview.py` / `xhs/new_tab.py`：只保留各自模式的差异行为。
+
+## 入口文件约定
+
+- `xhs_gui.py` 和 `xhs_scraper.py` 保留在项目根目录，作为用户双击、命令行和旧脚本兼容入口。
+- `scripts/` 只放 Windows 启动和安装辅助脚本。这样入口路径稳定，也符合 Python 项目常见的“包代码在 `xhs/`，兼容入口在根目录，辅助脚本在 `scripts/`”布局。

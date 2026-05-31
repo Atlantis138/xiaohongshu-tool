@@ -3,10 +3,10 @@ from __future__ import annotations
 from playwright.sync_api import Page
 
 from .browser import ensure_not_checkpoint
-from .extractors import EXTRACT_SEARCH_ITEMS_JS
 from .logging_utils import log
 from .models import SearchItem
-from .urls import build_search_url, extract_note_id, normalize_note_url
+from .search_scan import extract_current_search_items, merge_search_item
+from .urls import build_search_url
 
 
 def collect_search_items(
@@ -31,38 +31,16 @@ def collect_search_items(
     stagnant_rounds = 0
 
     for round_index in range(1, max_scrolls + 1):
-        found = page.evaluate(EXTRACT_SEARCH_ITEMS_JS)
-
         before = len(items)
-        for item in found:
-            url = normalize_note_url(item.get("url", ""))
-            note_id = extract_note_id(url)
-            key = note_id or url
+        for incoming in extract_current_search_items(page, keyword):
+            key = incoming.note_id or incoming.url
             if not key:
                 continue
-
-            incoming = SearchItem(
-                url=url,
-                note_id=note_id,
-                source_keyword=keyword,
-                source_title=item.get("title", ""),
-                source_author_name=item.get("author_name", ""),
-                source_raw_liked_count=item.get("raw_liked_count", ""),
-                search_index=item.get("search_index", ""),
-            )
             if key not in items:
                 items[key] = incoming
                 continue
 
-            current = items[key]
-            current_has_token = "xsec_token=" in current.url
-            incoming_has_token = "xsec_token=" in incoming.url
-            if incoming_has_token and not current_has_token:
-                current.url = incoming.url
-            current.source_title = current.source_title or incoming.source_title
-            current.source_author_name = current.source_author_name or incoming.source_author_name
-            current.source_raw_liked_count = current.source_raw_liked_count or incoming.source_raw_liked_count
-            current.search_index = current.search_index or incoming.search_index
+            merge_search_item(items[key], incoming)
 
         after = len(items)
         log(f"搜索页滚动 {round_index}/{max_scrolls}，已发现 {after} 条笔记链接。")

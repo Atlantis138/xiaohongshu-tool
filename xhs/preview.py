@@ -11,12 +11,20 @@ from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 from .browser import detect_checkpoint, ensure_not_checkpoint, wait_for_manual_takeover
 from .csv_store import ResumeIndex
 from .detail import build_base_note_row, click_expand_buttons, merge_extraction, save_debug_files
-from .extractors import EXTRACT_NOTE_JS, EXTRACT_SEARCH_ITEMS_JS
+from .extractors import EXTRACT_NOTE_JS
 from .logging_utils import log
 from .models import SearchItem
 from .parsing import parse_count
 from .runtime import sleep_random
-from .urls import build_search_url, extract_note_id, normalize_note_url
+from .search_scan import (
+    capture_scroll_y,
+    click_search_item,
+    extract_current_search_items,
+    items_in_scan_band,
+    restore_scroll_y,
+    scroll_search_page_forward,
+)
+from .urls import build_search_url
 
 
 @dataclass
@@ -28,10 +36,6 @@ class PreviewScrapeStats:
     written_count: int = 0
     stopped_by_checkpoint: bool = False
     stopped_by_user: bool = False
-
-
-def _css_string(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 def _preview_visible(page: Page) -> bool:
@@ -55,140 +59,6 @@ def _preview_visible(page: Page) -> bool:
         )
     except Exception:
         return False
-
-
-def _extract_current_search_items(page: Page, keyword: str) -> list[SearchItem]:
-    found = page.evaluate(EXTRACT_SEARCH_ITEMS_JS)
-    items: dict[str, SearchItem] = {}
-    for item in found:
-        url = normalize_note_url(item.get("url", ""))
-        note_id = extract_note_id(url)
-        key = note_id or url
-        if not key:
-            continue
-        incoming = SearchItem(
-            url=url,
-            note_id=note_id,
-            source_keyword=keyword,
-            source_title=item.get("title", ""),
-            source_author_name=item.get("author_name", ""),
-            source_raw_liked_count=item.get("raw_liked_count", ""),
-            search_index=item.get("search_index", ""),
-            viewport_top=float(item.get("viewport_top") or 0),
-            viewport_bottom=float(item.get("viewport_bottom") or 0),
-            document_top=float(item.get("document_top") or 0),
-            document_bottom=float(item.get("document_bottom") or 0),
-            viewport_height=float(item.get("viewport_height") or 0),
-        )
-        if key not in items:
-            items[key] = incoming
-            continue
-        current = items[key]
-        current_has_token = "xsec_token=" in current.url
-        incoming_has_token = "xsec_token=" in incoming.url
-        if incoming_has_token and not current_has_token:
-            current.url = incoming.url
-        current.source_title = current.source_title or incoming.source_title
-        current.source_author_name = current.source_author_name or incoming.source_author_name
-        current.source_raw_liked_count = current.source_raw_liked_count or incoming.source_raw_liked_count
-        current.search_index = current.search_index or incoming.search_index
-        if incoming.document_top and (not current.document_top or incoming.document_top < current.document_top):
-            current.viewport_top = incoming.viewport_top
-            current.viewport_bottom = incoming.viewport_bottom
-            current.document_top = incoming.document_top
-            current.document_bottom = incoming.document_bottom
-            current.viewport_height = incoming.viewport_height
-    return sorted(items.values(), key=lambda item: (item.document_top or 0, item.search_index or ""))
-
-
-def _items_in_scan_band(items: list[SearchItem]) -> list[SearchItem]:
-    if not items:
-        return []
-    viewport_height = max((item.viewport_height for item in items if item.viewport_height), default=0)
-    if viewport_height <= 0:
-        return items
-    top_margin = 120
-    below_viewport_margin = 180
-    band = [
-        item
-        for item in items
-        if item.viewport_bottom >= -top_margin and item.viewport_top <= viewport_height + below_viewport_margin
-    ]
-    return band or items[:1]
-
-
-def _capture_scroll_y(page: Page) -> float:
-    try:
-        return float(page.evaluate("() => window.scrollY || document.documentElement.scrollTop || 0"))
-    except Exception:
-        return 0.0
-
-
-def _restore_scroll_y(page: Page, scroll_y: float) -> None:
-    try:
-        page.evaluate("(y) => window.scrollTo(0, y)", scroll_y)
-        page.wait_for_timeout(250)
-    except Exception:
-        pass
-
-
-def _scroll_search_page_forward(page: Page, args: argparse.Namespace) -> None:
-    try:
-        viewport_height = float(page.evaluate("() => window.innerHeight || document.documentElement.clientHeight || 900"))
-    except Exception:
-        viewport_height = 900.0
-    requested = args.scroll_pixels if args.scroll_pixels > 0 else int(viewport_height * 0.65)
-    delta = max(300, min(int(requested), int(viewport_height * 0.65)))
-    page.evaluate("(dy) => window.scrollBy(0, dy)", delta)
-
-
-def _click_search_item(page: Page, item: SearchItem) -> bool:
-    note_id = item.note_id
-    selectors: list[str] = []
-    if item.search_index:
-        index = _css_string(item.search_index)
-        if note_id:
-            note = _css_string(note_id)
-            selectors.extend(
-                [
-                    f"section.note-item[data-index='{index}'] a.cover[href*='{note}']",
-                    f"section.note-item[data-index='{index}'] a.title[href*='{note}']",
-                    f"section[data-index='{index}'] a[href*='{note}']",
-                ]
-            )
-        selectors.append(f"section.note-item[data-index='{index}'] a.cover")
-    if note_id:
-        note = _css_string(note_id)
-        selectors.extend(
-            [
-                f"a.cover[href*='{note}']",
-                f"a.title[href*='{note}']",
-                f"a[href*='/search_result/{note}']",
-                f"a[href*='/explore/{note}']",
-            ]
-        )
-
-    for selector in selectors:
-        try:
-            locator = page.locator(selector).first
-            if locator.count() == 0:
-                continue
-            locator.evaluate(
-                r"""
-                (el) => {
-                  const rect = el.getBoundingClientRect();
-                  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 900;
-                  if (rect.top < 80 || rect.bottom > viewportHeight - 80) {
-                    el.scrollIntoView({ block: "center", inline: "nearest" });
-                  }
-                }
-                """
-            )
-            locator.click(timeout=5000)
-            return True
-        except Exception:
-            continue
-    return False
 
 
 def _wait_for_preview(page: Page, timeout_ms: int) -> bool:
@@ -302,8 +172,8 @@ def scrape_keyword_previews(
                 log(f"达到最大运行时长 {args.max_runtime_minutes} 分钟，已平稳停止。")
                 break
 
-        current_items = _extract_current_search_items(page, keyword)
-        scan_items = _items_in_scan_band(current_items)
+        current_items = extract_current_search_items(page, keyword)
+        scan_items = items_in_scan_band(current_items)
         before = len(seen_keys)
         for item in current_items:
             key = item.note_id or item.url
@@ -335,9 +205,9 @@ def scrape_keyword_previews(
             current_position = stats.written_count + stats.skipped_count + 1
             log(f"[{current_position}/{max_notes}] 预览采集：{item.url}")
             preview_opened = False
-            saved_scroll_y = _capture_scroll_y(page)
+            saved_scroll_y = capture_scroll_y(page)
             try:
-                if not _click_search_item(page, item):
+                if not click_search_item(page, item):
                     row["status"] = "error"
                     row["error"] = "未能在当前搜索页 DOM 中点击到对应笔记卡片。"
                 elif not _wait_for_preview(page, args.timeout_ms):
@@ -369,7 +239,7 @@ def scrape_keyword_previews(
             finally:
                 if preview_opened:
                     _close_preview(page, search_url)
-                _restore_scroll_y(page, saved_scroll_y)
+                restore_scroll_y(page, saved_scroll_y)
 
             write_row(row)
             resume_index.add(keyword, item)
@@ -415,7 +285,7 @@ def scrape_keyword_previews(
             log("连续多轮没有发现新笔记，停止滚动。")
             break
 
-        _scroll_search_page_forward(page, args)
+        scroll_search_page_forward(page, args)
         page.wait_for_timeout(int(args.scroll_delay * 1000))
         if not ensure_not_checkpoint(page, args.ignore_checkpoint, "搜索页滚动后"):
             stats.stopped_by_checkpoint = True

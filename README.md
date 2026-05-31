@@ -54,7 +54,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 scripts\run_gui.bat
 ```
 
-图形界面顶部提供账号会话区，可以先打开登录窗口或检查当前登录状态。采集任务区提供五种任务：一步完成搜索并采详情、预览模式搜索页点击采详情、新标签页模式搜索页打开采详情、第一步只收集搜索链接、第二步从链接 CSV 采详情。常用参数默认显示，高级参数可展开调整。
+图形界面顶部提供账号会话区，可以先打开登录窗口或检查当前登录状态。采集任务区提供三种任务类型：URL 流程、预览层、新标签页。URL 流程下可选择“完整执行”“仅收集链接”“链接 CSV”三个步骤；输入链接 CSV 只会在 URL 流程中显示。常用参数默认显示，高级参数可展开调整。
 
 如果要一次采多个关键词，可以勾选“批量关键词”，然后在批量任务框中每行填写一个任务，例如 `城市露营,20`。所有关键词会按填写顺序执行，并写入同一个输出 CSV。
 
@@ -145,18 +145,7 @@ scripts\run_gui.bat
 
 断点续跑：详情结果 CSV 每成功或失败一条都会立即追加保存。不勾选“覆盖已有输出文件”时，脚本启动后会先读取输出 CSV 建立恢复索引；读取帖子前如果发现该笔记 `note_id` 已经存在，就会快速跳过，不触发随机延迟、定期休息或重启计数。所有采集模式都按 `note_id` 全局跳过；如果行内 `note_id` 为空但 URL 能提取出笔记 ID，也会自动补齐后参与去重。不要把 `--input-csv` 和 `--output` 指向同一个文件。
 
-如果想从链接 CSV 的指定位置继续，或只处理其中一段范围，可以指定数据行号。行号从 CSV 第一条数据开始算，表头不计入，起止行都包含：
-
-```powershell
-.\scripts\run_scraper.bat `
-  --input-csv .\data\xhs_links_城市露营.csv `
-  --input-start-row 101 `
-  --input-end-row 200 `
-  --max-notes 100 `
-  --output .\data\xhs_notes_城市露营.csv
-```
-
-`--max-notes` 仍是本次最多处理条数的上限；如果要处理完整范围，请把它设置为不小于范围长度。图形界面中选择“第二步：从链接 CSV 采详情”后，也可以填写“CSV 起始行”和“CSV 结束行”。不勾选“覆盖已有输出文件”时，会继续自动跳过输出 CSV 中已经存在的 `note_id`。
+`--max-notes` 仍是本次最多处理条数的上限；如果要处理完整范围，请把它设置为不小于范围长度。不勾选“覆盖已有输出文件”时，会继续自动跳过输出 CSV 中已经存在的 `note_id`。
 
 ## CSV 字段
 
@@ -198,17 +187,22 @@ scripts\run_gui.bat
 
 ## 项目结构
 
-项目已做轻量模块化，保留 `xhs_scraper.py` 作为兼容命令行入口，核心逻辑放在 `xhs/` 包内：
+项目已按“工具箱”方向做模块化，保留 `xhs_scraper.py` 作为兼容命令行入口，核心逻辑放在 `xhs/` 包内：
 
-- `xhs/cli.py`：命令行参数和主运行流程。
+- `xhs/cli.py`：命令行参数解析、校验和 runner 调用。
+- `xhs/runner.py`：应用层运行编排、CSV 续跑、采集模式调度和节奏控制。
+- `xhs/modes.py`：采集模式、GUI 任务文案、关键词任务解析。
+- `xhs/search_scan.py`：搜索页扫描、卡片定位、滚动恢复等共享逻辑。
+- `xhs/strategies.py`：预览层和新标签页策略接口。
 - `xhs/browser.py`：Playwright 浏览器启动、登录、登录状态检查和异常页面检测。
 - `xhs/search.py`：关键词搜索页滚动和笔记链接收集。
 - `xhs/detail.py`：详情页打开、字段提取、调试文件保存。
+- `xhs/preview.py` / `xhs/new_tab.py`：搜索页预览层、新标签页两种差异化采集策略。
 - `xhs/csv_store.py`：CSV 读写、断点续跑、搜索链接表读取。
 - `xhs/config.py` / `xhs/models.py`：默认配置、CSV 字段和数据结构。
 - `xhs_gui.py`：Tkinter 图形界面，仍通过 `xhs_scraper.py` 启动采集子进程。
 - `scripts/`：Windows 启动脚本。
-- `docs/`：项目结构和维护说明。
+- `docs/`：项目结构、维护说明和功能路线图。
 - `data/`：本地输出目录，CSV 和日志默认不上传 GitHub。
 - `.xhs_browser/`：本地浏览器资料目录，可能包含登录态，默认不上传 GitHub。
 
